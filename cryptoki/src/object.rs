@@ -154,6 +154,8 @@ pub enum AttributeType {
     UniqueId,
     /// Determines if a key supports unwrapping
     Unwrap,
+    /// Attribute template for an unwrapping key
+    UnwrapTemplate,
     /// Gives the URL where the complete certificate can be obtained
     Url,
     /// Identifier indicating the validation type
@@ -450,6 +452,7 @@ impl AttributeType {
             | AttributeType::Subject
             | AttributeType::UniqueId
             | AttributeType::Url
+            | AttributeType::UnwrapTemplate
             | AttributeType::ValidationModuleId
             | AttributeType::ValidationCertificateIdentifier
             | AttributeType::ValidationCertificateUri
@@ -530,6 +533,7 @@ impl From<AttributeType> for CK_ATTRIBUTE_TYPE {
             AttributeType::Trusted => CKA_TRUSTED,
             AttributeType::UniqueId => CKA_UNIQUE_ID,
             AttributeType::Unwrap => CKA_UNWRAP,
+            AttributeType::UnwrapTemplate => CKA_UNWRAP_TEMPLATE,
             AttributeType::Url => CKA_URL,
             AttributeType::ValidationType => CKA_VALIDATION_TYPE,
             AttributeType::ValidationVersion => CKA_VALIDATION_VERSION,
@@ -617,6 +621,7 @@ impl TryFrom<CK_ATTRIBUTE_TYPE> for AttributeType {
             CKA_TRUSTED => Ok(AttributeType::Trusted),
             CKA_UNIQUE_ID => Ok(AttributeType::UniqueId),
             CKA_UNWRAP => Ok(AttributeType::Unwrap),
+            CKA_UNWRAP_TEMPLATE => Ok(AttributeType::UnwrapTemplate),
             CKA_URL => Ok(AttributeType::Url),
             CKA_VALIDATION_TYPE => Ok(AttributeType::ValidationType),
             CKA_VALIDATION_VERSION => Ok(AttributeType::ValidationVersion),
@@ -642,6 +647,48 @@ impl TryFrom<CK_ATTRIBUTE_TYPE> for AttributeType {
                 Err(Error::NotSupported)
             }
         }
+    }
+}
+
+/// Wrapper supporting nested attributes like CKA_UNWRAP_TEMPLATE.
+#[derive(Debug, Default)]
+pub struct AttributeVec {
+    inner: Vec<Attribute>,
+    raw: Vec<CK_ATTRIBUTE>,
+}
+
+impl PartialEq for AttributeVec {
+    fn eq(&self, other: &AttributeVec) -> bool {
+        self.inner.eq(&other.inner)
+    }
+}
+
+impl Eq for AttributeVec {}
+
+impl Clone for AttributeVec {
+    fn clone(&self) -> Self {
+        let v = self.inner.clone();
+        let raw = v.iter().map(|elem| CK_ATTRIBUTE::from(elem)).collect();
+        Self { inner: v, raw: raw }
+    }
+}
+
+impl AttributeVec {
+    /// Creates an array of attributes
+    pub fn new(attributes: &[Attribute]) -> Self {
+        let v = attributes.to_vec();
+        let raw = v.iter().map(|elem| CK_ATTRIBUTE::from(elem)).collect();
+        Self { inner: v, raw: raw }
+    }
+
+    /// The byte length of the attribute array
+    pub fn len(&self) -> usize {
+        self.raw.len() * size_of::<CK_ATTRIBUTE>()
+    }
+
+    /// A raw pointer to the CK_ATTRIBUTE vector.
+    pub fn ptr(&self) -> *mut c_void {
+        as_cptr!(self.raw)
     }
 }
 
@@ -767,6 +814,8 @@ pub enum Attribute {
     UniqueId(Vec<u8>),
     /// Determines if a key supports unwrapping
     Unwrap(bool),
+    /// Attribute template for an unwrapping key
+    UnwrapTemplate(AttributeVec),
     /// Gives the URL where the complete certificate can ber obtained
     Url(Vec<u8>),
     /// Identifier indicating the validation type
@@ -871,6 +920,7 @@ impl Attribute {
             Attribute::Trusted(_) => AttributeType::Trusted,
             Attribute::UniqueId(_) => AttributeType::UniqueId,
             Attribute::Unwrap(_) => AttributeType::Unwrap,
+            Attribute::UnwrapTemplate(_) => AttributeType::UnwrapTemplate,
             Attribute::Url(_) => AttributeType::Url,
             Attribute::ValidationType(_) => AttributeType::ValidationType,
             Attribute::ValidationVersion(_) => AttributeType::ValidationVersion,
@@ -977,6 +1027,8 @@ impl Attribute {
             Attribute::AllowedMechanisms(mechanisms) => {
                 size_of::<CK_MECHANISM_TYPE>() * mechanisms.len()
             }
+
+            Attribute::UnwrapTemplate(template) => template.len(),
             Attribute::VendorDefined((_, bytes)) => bytes.len(),
         }
     }
@@ -1084,6 +1136,7 @@ impl Attribute {
             Attribute::EndDate(date) | Attribute::StartDate(date) => {
                 date as *const _ as *mut c_void
             }
+            Attribute::UnwrapTemplate(template) => template.ptr(),
         }
     }
 }
@@ -1321,6 +1374,22 @@ impl TryFrom<CK_ATTRIBUTE> for Attribute {
                         )?))
                     }
                 }
+            }
+            AttributeType::UnwrapTemplate => {
+                let template = if attribute.ulValueLen == 0 {
+                    AttributeVec::default()
+                } else {
+                    let val = unsafe {
+                        std::slice::from_raw_parts(
+                            attribute.pValue as *const CK_ATTRIBUTE,
+                            (attribute.ulValueLen / size_of::<CK_ATTRIBUTE>() as u64).try_into()?,
+                        )
+                    };
+                    let vec = val.iter().map(|t| (*t).try_into()).collect::<Result<Vec<_>>>()?;
+                    AttributeVec::new(&vec)
+                };
+
+                Ok(Attribute::UnwrapTemplate(template))
             }
             AttributeType::VendorDefined(t) => Ok(Attribute::VendorDefined((
                 AttributeType::VendorDefined(t),
