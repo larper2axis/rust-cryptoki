@@ -6920,7 +6920,7 @@ impl Pkcs11 {
         let C_VerifyMessageNext = __library.get(b"C_VerifyMessageNext\0").map(|sym| *sym);
         let C_MessageVerifyFinal = __library.get(b"C_MessageVerifyFinal\0").map(|sym| *sym);
         let C_EncapsulateKey = __library.get(b"C_EncapsulateKey\0").map(|sym| *sym);
-        let C_DecapsulateKey = __library.get(b"C_DecapsulateKey\0").map(|sym| *sym);
+        let C_DecapsulateKey = __library.get(b"CA_DecapsulateKey\0").map(|sym| *sym);
         let C_VerifySignatureInit = __library.get(b"C_VerifySignatureInit\0").map(|sym| *sym);
         let C_VerifySignature = __library.get(b"C_VerifySignature\0").map(|sym| *sym);
         let C_VerifySignatureUpdate = __library.get(b"C_VerifySignatureUpdate\0").map(|sym| *sym);

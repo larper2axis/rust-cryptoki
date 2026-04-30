@@ -155,10 +155,16 @@ impl Pkcs11 {
         Rv::from(pkcs11_lib.C_GetFunctionList(&mut list_ptr))
             .into_result(Function::GetFunctionList)?;
 
+        // Thales 10.9.3 hack for not being fully PKCS#11 3.2 compliant
+        let mut function_list = v2tov3(*list_ptr);
+        if let Ok(ref f) = pkcs11_lib.C_DecapsulateKey {
+            function_list.C_DecapsulateKey = Some(*f) 
+        }
+
         Ok(Pkcs11 {
             impl_: Arc::new(Pkcs11Impl {
                 _pkcs11_lib: pkcs11_lib,
-                function_list: FunctionList::V2(v2tov3(*list_ptr)),
+                function_list: FunctionList::V2(function_list),
             }),
         })
     }
